@@ -98,18 +98,33 @@ func (c *Client) DeleteCertByName(nodename string) error {
 	return nil
 }
 
+// SignCertByName signs the certificate of a given node
+func (c *Client) SignCertByName(nodename string) error {
+	payload := "{\"desired_state\":\"signed\"}"
+	_, err := c.Put(fmt.Sprintf("certificate_status/%s", nodename), payload)
+	if err != nil {
+		return errors.Wrapf(err, "failed to sign certificate %s", nodename)
+	}
+	return nil
+}
+
 // Get performs a GET request
 func (c *Client) Get(path string) (string, error) {
-	return c.Do("GET", path)
+	return c.Do("GET", path, "")
 }
 
 // Delete performs a DELETE request
 func (c *Client) Delete(path string) (string, error) {
-	return c.Do("DELETE", path)
+	return c.Do("DELETE", path, "")
+}
+
+// Put performs a PUT request
+func (c *Client) Put(path string, payload string) (string, error) {
+	return c.Do("PUT", path, payload)
 }
 
 // Do performs an HTTP request
-func (c *Client) Do(method, path string) (string, error) {
+func (c *Client) Do(method, path string, payload string) (string, error) {
 	fullPath := fmt.Sprintf("%s/puppet-ca/v1/%s", c.baseURL, path)
 	uri, err := url.Parse(fullPath)
 	if err != nil {
@@ -118,6 +133,11 @@ func (c *Client) Do(method, path string) (string, error) {
 	req := http.Request{
 		Method: method,
 		URL:    uri,
+	}
+	if payload != "" {
+		req.Header = make(http.Header)
+		req.Header.Add("Content-Type", "text/pson")
+		req.Body = ioutil.NopCloser(strings.NewReader(payload))
 	}
 	resp, err := c.httpClient.Do(&req)
 	if err != nil {
