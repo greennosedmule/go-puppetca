@@ -23,7 +23,7 @@ func isFile(str string) bool {
 }
 
 // NewClient returns a new Client
-func NewClient(baseURL, keyStr, certStr, caStr string) (c Client, err error) {
+func NewClient(baseURL, keyStr, certStr, caStr string, ignoreSsl bool) (c Client, err error) {
 	// Load client cert
 	var cert tls.Certificate
 	if isFile(certStr) {
@@ -66,8 +66,9 @@ func NewClient(baseURL, keyStr, certStr, caStr string) (c Client, err error) {
 
 	// Setup HTTPS client
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      caCertPool,
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            caCertPool,
+		InsecureSkipVerify: ignoreSsl,
 	}
 	tr := &http.Transport{TLSClientConfig: tlsConfig}
 	httpClient := &http.Client{Transport: tr}
