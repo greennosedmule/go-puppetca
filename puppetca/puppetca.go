@@ -82,11 +82,11 @@ func NewClient(baseURL, keyStr, certStr, caStr string, ignoreSsl bool) (c Client
 
 // GetCertByName returns the certificate of a node by its name
 func (c *Client) GetCertByName(nodename string) (string, error) {
-	pem, err := c.Get(fmt.Sprintf("certificate/%s", nodename))
+	certInfo, err := c.Get(fmt.Sprintf("certificate_status/%s", nodename))
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to retrieve certificate %s", nodename)
 	}
-	return pem, nil
+	return certInfo, nil
 }
 
 // DeleteCertByName deletes the certificate of a given node
