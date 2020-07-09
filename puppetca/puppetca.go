@@ -19,7 +19,10 @@ type Client struct {
 }
 
 func isFile(str string) bool {
-	return strings.HasPrefix(str, "/")
+	if strings.Contains(str, "-BEGIN CERTIFICATE-") || strings.Contains(str, "-BEGIN RSA PRIVATE KEY-") {
+		return false
+	}
+	return strings.HasSuffix(str, ".pem") || strings.HasSuffix(str, ".cer") || strings.HasSuffix(str, ".key") || strings.HasPrefix(str, "/") || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../")
 }
 
 // NewClient returns a new Client
