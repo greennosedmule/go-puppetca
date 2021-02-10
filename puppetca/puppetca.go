@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -82,7 +81,16 @@ func NewClient(baseURL, keyStr, certStr, caStr string, ignoreSsl bool) (c Client
 
 // GetCertByName returns the certificate of a node by its name
 func (c *Client) GetCertByName(nodename string) (string, error) {
-	certInfo, err := c.Get(fmt.Sprintf("certificate_status/%s", nodename))
+	pem, err := c.Get(fmt.Sprintf("certificate/%s", nodename), nil)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to retrieve certificate %s", nodename)
+	}
+	return pem, nil
+}
+
+// GetCertStatusByName returns the certificate status info of a node by its name
+func (c *Client) GetCertStatusByName(nodename string) (string, error) {
+	certInfo, err := c.Get(fmt.Sprintf("certificate_status/%s", nodename), nil)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to retrieve certificate %s", nodename)
 	}
@@ -91,60 +99,87 @@ func (c *Client) GetCertByName(nodename string) (string, error) {
 
 // DeleteCertByName deletes the certificate of a given node
 func (c *Client) DeleteCertByName(nodename string) error {
-	_, err := c.Delete(fmt.Sprintf("certificate_status/%s", nodename))
+	_, err := c.Delete(fmt.Sprintf("certificate_status/%s", nodename), nil)
 	if err != nil {
 		return errors.Wrapf(err, "failed to delete certificate %s", nodename)
 	}
 	return nil
 }
 
-// SignCertByName signs the certificate of a given node
-func (c *Client) SignCertByName(nodename string) error {
-	payload := "{\"desired_state\":\"signed\"}"
-	_, err := c.Put(fmt.Sprintf("certificate_status/%s", nodename), payload)
+// SubmitRequest submits a CSR
+func (c *Client) SubmitRequest(nodename string, pem string) error {
+	// Content-Type: text/plain
+	headers := map[string]string{
+		"Content-Type": "text/plain",
+	}
+	_, err := c.Put(fmt.Sprintf("certificate_request/%s", nodename), pem, headers)
 	if err != nil {
-		return errors.Wrapf(err, "failed to sign certificate %s", nodename)
+		return errors.Wrapf(err, "failed to submit CSR %s", nodename)
+	}
+	return nil
+}
+
+// SignRequest signs a CSR
+func (c *Client) SignRequest(nodename string) error {
+	action := "{\"desired_state\":\"signed\"}"
+	headers := map[string]string{
+		"Content-Type": "text/pson",
+	}
+	_, err := c.Put(fmt.Sprintf("certificate_status/%s", nodename), action, headers)
+	if err != nil {
+		return errors.Wrapf(err, "failed to sign CSR %s", nodename)
 	}
 	return nil
 }
 
 // Get performs a GET request
-func (c *Client) Get(path string) (string, error) {
-	return c.Do("GET", path, "")
-}
-
-// Delete performs a DELETE request
-func (c *Client) Delete(path string) (string, error) {
-	return c.Do("DELETE", path, "")
+func (c *Client) Get(path string, headers map[string]string) (string, error) {
+	req, err := c.newHTTPRequest("GET", path)
+	if err != nil {
+		return "", err
+	}
+	return c.Do(req, headers)
 }
 
 // Put performs a PUT request
-func (c *Client) Put(path string, payload string) (string, error) {
-	return c.Do("PUT", path, payload)
+func (c *Client) Put(path, data string, headers map[string]string) (string, error) {
+	req, err := c.newHTTPRequest("PUT", path)
+	if err != nil {
+		return "", err
+	}
+	req.Body = ioutil.NopCloser(strings.NewReader(data))
+	return c.Do(req, headers)
+}
+
+// Delete performs a DELETE request
+func (c *Client) Delete(path string, headers map[string]string) (string, error) {
+	req, err := c.newHTTPRequest("DELETE", path)
+	if err != nil {
+		return "", err
+	}
+	return c.Do(req, headers)
+}
+
+func (c *Client) newHTTPRequest(method, path string) (*http.Request, error) {
+	uri := fmt.Sprintf("%s/puppet-ca/v1/%s", c.baseURL, path)
+	req, err := http.NewRequest(method, uri, nil)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create http request for URL %s", uri)
+	}
+	return req, nil
 }
 
 // Do performs an HTTP request
-func (c *Client) Do(method, path string, payload string) (string, error) {
-	fullPath := fmt.Sprintf("%s/puppet-ca/v1/%s", c.baseURL, path)
-	uri, err := url.Parse(fullPath)
+func (c *Client) Do(req *http.Request, headers map[string]string) (string, error) {
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", errors.Wrapf(err, "failed to parse URL %s", fullPath)
-	}
-	req := http.Request{
-		Method: method,
-		URL:    uri,
-	}
-	if payload != "" {
-		req.Header = make(http.Header)
-		req.Header.Add("Content-Type", "text/pson")
-		req.Body = ioutil.NopCloser(strings.NewReader(payload))
-	}
-	resp, err := c.httpClient.Do(&req)
-	if err != nil {
-		return "", errors.Wrapf(err, "failed to %s URL %s", method, fullPath)
+		return "", errors.Wrapf(err, "failed to %s URL %s", req.Method, req.URL)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return "", fmt.Errorf("failed to %s URL %s, got: %s", method, fullPath, resp.Status)
+		return "", fmt.Errorf("failed to %s URL %s, got: %s", req.Method, req.URL, resp.Status)
 	}
 	defer resp.Body.Close()
 	content, err := ioutil.ReadAll(resp.Body)
